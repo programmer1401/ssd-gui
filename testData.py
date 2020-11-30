@@ -13,9 +13,6 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-
-# os.environ['CUDA_ENABLE_DEVICES'] = '0'
-
 def test_net(net, cuda, img, transform):
     # print(torch.cuda.get_device_name(0))
 
