@@ -1,0 +1,124 @@
+import os
+import tkinter as tk
+
+import matplotlib
+from PIL import Image, ImageTk
+import tkinter.messagebox
+import tkinter.filedialog
+
+from gui.trainData import TrainData
+
+# 解决汉字乱码问题
+matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 使用指定的汉字字体类型（此处为黑体）
+
+ERROR_TITLE = ["输入错误！", "运行错误！"]
+INFO_TITLE = ["状态信息", "提示"]
+
+class TrainWin:
+    def __init__(self, window):
+        self.window = window
+        # self.window = tk.Tk()
+        # self.window.title("ssd 可视化")
+        # self.window.geometry("1000x618")
+        self.show_loss_path = "E:\Code\Examples\Gao\ssd.pytorch-master\eval\show_loss.jpg"
+        # 用来判断 是否训练过
+        self.finish = False
+
+        # 标题
+        tk.Label(self.window, text="基于PyTorch的目标检测—数据训练", font=("STSONG", 23, "bold")).place(x=270, y=20)
+        tk.Label(self.window, text="参数显示", font=("HGHUATI_CNKI", 17, "bold")).place(x=200, y=75)
+        tk.Label(self.window, text="图像显示", font=("HGHUATI_CNKI", 17, "bold")).place(x=700, y=75)
+
+        # 输入
+        tk.Label(self.window, text="主干网络：", font=("STSONG", 14)).place(x=90, y=170)
+        tk.Label(self.window, text="迭代次数：", font=("STSONG", 14)).place(x=90, y=220)
+        tk.Label(self.window, text="批量大小：", font=("STSONG", 14)).place(x=90, y=270)
+        tk.Label(self.window, text="是否使用cuda：", font=("STSONG", 14)).place(x=90, y=320)
+        tk.Label(self.window, text="学习率：", font=("STSONG", 14)).place(x=90, y=370)
+
+        basenet = tk.IntVar()
+        basenet.set(1)
+        tk.Radiobutton(self.window, text="VGG", value=1, variable=basenet, font=("STSONG", 14)).place(x=220, y=165)
+        tk.Radiobutton(self.window, text="ResNet", value=2, variable=basenet, font=("STSONG", 14)).place(x=300, y=165)
+
+        input_iter_num = tk.Entry(self.window, textvariable=tk.StringVar(value="10"), width=23, font=("STSONG", 12))
+        input_iter_num.place(x=220, y=220)
+        input_batch_size = tk.Entry(self.window, textvariable=tk.StringVar(value="4"), width=23, font=("STSONG", 12))
+        input_batch_size.place(x=220, y=270)
+
+        cuda = tk.IntVar()
+        cuda.set(1)
+        tk.Radiobutton(self.window, text="是", value=1, variable=cuda, font=("STSONG", 14)).place(x=220, y=320)
+        tk.Radiobutton(self.window, text="否", value=2, variable=cuda, font=("STSONG", 14)).place(x=270, y=320)
+
+        input_learning_rate = tk.Entry(self.window, textvariable=tk.StringVar(value="0.0003"), width=23, font=("STSONG", 12))
+        input_learning_rate.place(x=220, y=370)
+
+        # 图片
+        self.imglabel = tk.Label(self.window, relief="groove", bg="white")
+        self.imglabel.place(x=540, y=150, height=400, width=400)
+
+        # 按钮
+        self.btn_start = tk.Button(self.window, text="开始", height="1", width="15",
+                                   command=lambda: self.train_start(basenet.get(),
+                                                                    input_iter_num.get(),
+                                                                    input_batch_size.get(),
+                                                                    input_learning_rate.get(),
+                                                                    cuda.get())).place(x=90, y=450)
+
+        self.btn_img_save = tk.Button(self.window, text="另存为", height="1", width="15",
+                                      command=self.img_save).place(x=290, y=450)
+
+        # self.window.mainloop()
+
+    def train_start(self, basenet, iter_num, batch_size, learning_rate, cuda):
+
+        if self.finish==True:
+            is_save = tk.messagebox.askokcancel(INFO_TITLE[1], "请确认是否已经将损失函数图像另存为？")
+            if not is_save:
+                return
+
+        cuda = True if cuda == 1 else False
+
+        if basenet == 1:
+            basenet = "vgg16_reducedfc.pth"
+        else:
+            tk.messagebox.showerror(title=ERROR_TITLE[1], message="功能尚未开发，无法使用！")
+            return
+
+        if len(iter_num) != 0 and len(batch_size) != 0 and len(learning_rate) != 0:
+
+            # 先删掉之前程序运行出的 show_loss.jpg
+            if os.path.exists(self.show_loss_path):
+                os.remove(self.show_loss_path)
+
+            # while (not os.path.exists(self.show_loss_path)):
+            #     tk.messagebox.showinfo(title="状态信息", message="程序正在执行，请耐心等待……")
+
+            traindata = TrainData(int(iter_num), basenet=basenet, batch_size=int(batch_size), cuda=cuda,
+                                  lr=float(learning_rate))
+            self.finish = traindata.train()
+
+            tk.messagebox.showinfo(title=INFO_TITLE[0], message="程序执行成功！")
+            self.show_lossImg()
+
+        else:
+            tk.messagebox.showerror(title=ERROR_TITLE[0], message="参数不能为空！")
+
+    def show_lossImg(self):
+        global image
+        image = ImageTk.PhotoImage(Image.open(self.show_loss_path).resize((420, 420)))
+        self.imglabel.config(image=image)
+
+
+    def img_save(self):
+        file_name = tk.filedialog.asksaveasfilename(title="图片另存为" ,filetypes=[("PNG", ".png")])
+
+        if file_name!="":
+            image = Image.open(self.show_loss_path)
+            image.save(str(file_name) + ".png")
+            tk.messagebox.showinfo(title=INFO_TITLE[0], message="图片另存为成功！")
+
+
+if __name__ == "__main__":
+    TrainWin()
