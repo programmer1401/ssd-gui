@@ -12,8 +12,6 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.nn.init as init
 import torch.utils.data as data
-import numpy as np
-import argparse
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -24,7 +22,7 @@ class TrainData:
     def __init__(self, iter_num, dataset='VOC', dataset_root=VOC_ROOT,
                  basenet='vgg16_reducedfc.pth', batch_size=4, cuda=False,
                  lr=1e-4, momentum=0.9, weight_decay=5e-4, gamma=0.1,
-                 save_folder="E:\Code\Examples\Gao\ssd.pytorch-master\weights/"):
+                 save_folder="D:\WorkSpace\PyCharmSpace\SSD\ssd.pytorch-master\weights/"):
         self.dataset = dataset
         self.dataset_root = dataset_root
         self.basenet = basenet
@@ -54,20 +52,7 @@ class TrainData:
 
     def train(self):
         self.set_equipment()
-        print(torch.cuda.get_device_name(0))
 
-        if torch.cuda.is_available():
-            if self.cuda:
-                torch.set_default_tensor_type('torch.cuda.FloatTensor')
-            if not self.cuda:
-                print("WARNING: It looks like you have a CUDA device, but aren't " +
-                      "using CUDA.\nRun with --cuda for optimal training speed.")
-                torch.set_default_tensor_type('torch.FloatTensor')
-        else:
-            torch.set_default_tensor_type('torch.FloatTensor')
-
-        if not os.path.exists(self.save_folder):
-            os.mkdir(self.save_folder)
         if self.dataset == 'COCO':
             if self.dataset_root == VOC_ROOT:
                 print("WARNING: Using default COCO dataset_root because " +
@@ -159,12 +144,12 @@ class TrainData:
 
             if iteration != 0 and iteration % 5 == 0:
                 print('Saving state, iter:', iteration)
-                torch.save(ssd_net.state_dict(), 'E:\Code\Examples\Gao\ssd.pytorch-master\weights/ssd300_VOC_' +
+                torch.save(ssd_net.state_dict(), 'D:\WorkSpace\PyCharmSpace\SSD\ssd.pytorch-master\weights/ssd300_VOC_' +
                            repr(iteration) + '.pth')
 
         torch.save(ssd_net.state_dict(), self.save_folder + '' + self.dataset + '.pth')
-        return show_loss("E:\Code\Examples\Gao\ssd.pytorch-master\eval\show_loss.jpg", loss_ass)
 
+        return loss_ass
 
     def adjust_learning_rate(self, optimizer, gamma, step):
         """Sets the learning rate to the initial LR decayed by 10 at every
