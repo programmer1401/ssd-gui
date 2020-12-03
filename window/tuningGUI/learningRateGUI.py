@@ -1,15 +1,8 @@
-import math
 import tkinter as tk
 from tkinter import *
 from gui.trainData import TrainData
 from gui.utils import CreateCanvas
-
-import random
-import numpy as np
-
-basenet = "vgg16_reducedfc.pth"
-batch_size = 2
-
+import matplotlib.pyplot as plt
 
 class learningRateGUI:
     def __init__(self, window):
@@ -32,100 +25,90 @@ class learningRateGUI:
               font=("STSONG", 13)).place(x=100, y=90)
 
         # 输入
-        Label(self.window, text="迭代次数：", font=("STSONG", 14)).place(x=90, y=150)
-        Label(self.window, text="批量大小：", font=("STSONG", 14)).place(x=90, y=200)
-        Label(self.window, text="是否使用cuda：", font=("STSONG", 14)).place(x=90, y=250)
-        Label(self.window, text="请选择 learning_rate 的范围：", font=("STSONG", 14)).place(x=90, y=300)
-        Label(self.window, text="起始值：", font=("STSONG", 14)).place(x=120, y=350)
-        Label(self.window, text="终止值：", font=("STSONG", 14)).place(x=120, y=390)
-        Label(self.window, text="增长间隔：", font=("STSONG", 14)).place(x=120, y=430)
+        Label(self.window, text="主干网络：", font=("STSONG", 14)).place(x=90, y=150)
+        Label(self.window, text="迭代次数：", font=("STSONG", 14)).place(x=90, y=200)
+        Label(self.window, text="批处理大小：", font=("STSONG", 14)).place(x=90, y=250)
+        Label(self.window, text="是否使用cuda：", font=("STSONG", 14)).place(x=90, y=300)
+        Label(self.window, text="请选择 learning_rate 的范围：", font=("STSONG", 14)).place(x=90, y=350)
+        Label(self.window, text="起始值：", font=("STSONG", 14)).place(x=120, y=400)
+        Label(self.window, text="终止值：", font=("STSONG", 14)).place(x=120, y=440)
+        Label(self.window, text="增长间隔：", font=("STSONG", 14)).place(x=120, y=480)
+
+        basenet = IntVar()
+        basenet.set(1)
+        Radiobutton(self.window, text="VGG", value=1, variable=basenet, font=("STSONG", 14)).place(x=250, y=150)
+        Radiobutton(self.window, text="ResNet", value=2, variable=basenet, font=("STSONG", 14)).place(x=330, y=150)
 
         # 迭代次数
         iter_num = Entry(self.window, textvariable=tk.StringVar(value="10"))
-        iter_num.place(x=250, y=150)
-        Label(self.window, text=str(batch_size) + "（最优值）").place(x=250, y=200)
+        iter_num.place(x=250, y=200)
+
+        # 批处理大小
+        batch_size = Entry(self.window, textvariable=tk.StringVar(value="2"))
+        batch_size.place(x=250, y=250)
 
         # 是否使用 cuda
         cuda = IntVar()
-        cuda.set(1)
-        Radiobutton(self.window, text="是", value=1, variable=cuda).place(x=250, y=250)
-        Radiobutton(self.window, text="否", value=2, variable=cuda).place(x=300, y=250)
+        cuda.set(2)
+        Radiobutton(self.window, text="是", value=1, variable=cuda).place(x=250, y=300)
+        Radiobutton(self.window, text="否", value=2, variable=cuda).place(x=330, y=300)
 
         # 选择 learning_rate 范围
         start = Entry(self.window, textvariable=StringVar(value="0.0001"))
-        start.place(x=250, y=350)
+        start.place(x=250, y=400)
         end = Entry(self.window, textvariable=StringVar(value="0.001"))
-        end.place(x=250, y=390)
+        end.place(x=250, y=440)
         step = Entry(self.window, textvariable=StringVar(value="0.0002"))
-        step.place(x=250, y=430)
+        step.place(x=250, y=480)
 
         # 按钮
         Button(self.window, text="开始", height="1", width="15",
-               command=lambda: self.tuning(int(iter_num.get()), float(start.get()), float(end.get()),
-                                           float(step.get()), cuda.get())).place(x=290, y=500)
+               command=lambda:self.tuning(basenet.get(), int(iter_num.get()),
+                                           int(batch_size.get()), cuda.get(),
+                                           float(start.get()), float(end.get()), float(step.get())))\
+            .place(x=290, y=530)
 
         self.matplot = CreateCanvas(self.window)
         self.canvas = self.matplot.get_canvas()
         self.figure = self.matplot.get_figure()
 
-    def tuning(self, iter_num, start, end, step, cuda):
-        self.learning_rate = []
-        self.loss_ass = []
+    def tuning(self, basenet, iter_num, batch_size, cuda, start, end, step):
+        try:
+            self.learning_rate = []
+            self.loss_ass = []
 
-        self.start = start
-        self.end = end
-        self.step = step
+            self.start = start
+            self.end = end
+            self.step = step
+            self.learning_rate += [start]
 
-        cuda = True if cuda == 1 else False
+            basenet = "vgg16_reducedfc.pth" if basenet == 1 else 'resnet50-19c8e357.pth'
+            cuda = True if cuda == 1 else False
 
-        # 如果开始和截止的两个数相差＞100倍，则采用每一段随机采样的方法
-        # 0.001-0.01-0.1两段中，在每一段都随机生成同样数量(如，10)的数，对生成的每个数，依次当作一个learning_rate
-        start_int = math.log10(self.start)
-        end_int = math.log10(self.end)
+            while self.learning_rate[-1] <= end:
+                traindata = TrainData(iter_num, basenet=basenet, batch_size=batch_size, cuda=cuda,
+                                      lr=self.learning_rate[-1])
+                loss = traindata.train()
 
-        if end_int - start_int >= 2:
-            is_random = tk.messagebox.askokcancel("提示！", "起始学习率为%f，终止学习率为%f\n两者相差太大，是否分段随机生成学习率？"%(self.start,self.end))
+                self.loss_ass += [loss[-1]]
+                self.learning_rate += [round(self.learning_rate[-1] + step, 6)]
 
-            if is_random:
-                for i in range(int(start_int), int(end_int + 1)):
-                    produce_point = np.random.rand(10)
-                    self.learning_rate += list(produce_point * math.pow(10, i + 1))
+            self.learning_rate = self.learning_rate[:-1]
+            self.create_matplotlib()
 
-                self.learning_rate.sort()
-
-                for k,v in enumerate(self.learning_rate):
-                    traindata = TrainData(iter_num, basenet=basenet, batch_size=batch_size, cuda=cuda, lr=v)
-                    loss = traindata.train()
-
-                    self.loss_ass += [loss[-1]]
-
-                self.create_matplotlib()
-                return
-
-        self.learning_rate += [start]
-
-        while self.learning_rate[-1] < end:
-            traindata = TrainData(iter_num, basenet=basenet, batch_size=batch_size, cuda=cuda,
-                                  lr=self.learning_rate[-1])
-            loss = traindata.train()
-
-            self.loss_ass += [loss[-1]]
-            self.learning_rate += [round(self.learning_rate[-1] + step, 6)]
-
-        self.learning_rate = self.learning_rate[:-1]
-        self.create_matplotlib()
+        except Exception as e:
+            tk.messagebox.showerror(title="运行错误！", message=str(e))
 
     def create_matplotlib(self):
-        axc = self.figure.add_subplot(111)
-        axc.clear()
-
-        axc.plot(self.learning_rate, self.loss_ass)
-        axc.set_title("损失函数与learning_rate的关系", loc='center', pad=20, fontsize='xx-large', color='red')
-        axc.set_xlabel("learning_rate")
-        axc.set_ylabel("损失函数")
-
+        plt.clf()
+        plt.plot(self.learning_rate, self.loss_ass)
+        plt.title("损失函数与learning_rate的关系", loc='center', pad=20, fontsize='xx-large', color='red')
+        plt.xlabel("learning_rate")
+        plt.ylabel("损失函数")
+        plt.xticks(rotation=45)
         self.canvas.draw()
 
 
 if __name__ == '__main__':
     learningRateGUI()
+
