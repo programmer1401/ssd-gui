@@ -2,9 +2,8 @@ from data import *
 from layers.img_utils import show_loss
 from utils.augmentations import SSDAugmentation
 from layers.modules import MultiBoxLoss
-from ssd import build_ssd
+from resnet_ssd import build_ssd
 import os
-import sys
 import time
 import torch
 from torch.autograd import Variable
@@ -13,13 +12,12 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.nn.init as init
 import torch.utils.data as data
-import numpy as np
 import argparse
-#
+import visdom
 import warnings
+
 warnings.filterwarnings("ignore")
 
-os.environ['CUDA_ENABLE_DEVICES'] = '0'
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
@@ -32,6 +30,8 @@ parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO'],
                     type=str, help='VOC or COCO')
 parser.add_argument('--dataset_root', default=VOC_ROOT,
                     help='Dataset root directory path')
+parser.add_argument('--model', default='vgg',
+                    help='model architecture of the base network')
 parser.add_argument('--basenet', default='vgg16_reducedfc.pth',
                     help='Pretrained base model')
 parser.add_argument('--batch_size', default=2, type=int,
@@ -40,24 +40,23 @@ parser.add_argument('--resume', default=None, type=str,
                     help='Checkpoint state_dict file to resume training from')
 parser.add_argument('--start_iter', default=0, type=int,
                     help='Resume training at this iter')
-parser.add_argument('--num_workers', default=0, type=int,
+parser.add_argument('--num_workers', default=1, type=int,
                     help='Number of workers used in dataloading')
-parser.add_argument('--cuda', default=True, type=str2bool,
+parser.add_argument('--cuda', default=False, type=str2bool,
                     help='Use CUDA to train model')
 parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
                     help='initial learning rate')
 parser.add_argument('--momentum', default=0.9, type=float,
                     help='Momentum value for optim')
 parser.add_argument('--weight_decay', default=5e-4, type=float,
-                    help='Weight decay for SGD')
+                    help='Weight decay')
 parser.add_argument('--gamma', default=0.1, type=float,
-                    help='Gamma update for SGD')
-parser.add_argument('--visdom', default=True, type=str2bool,
+                    help='Gamma update')
+parser.add_argument('--visdom', default=False, type=str2bool,
                     help='Use visdom for loss visualization')
-parser.add_argument('--save_folder', default='weights/vgg/',
+parser.add_argument('--save_folder', default='weights/',
                     help='Directory for saving checkpoint models')
 args = parser.parse_args()
-
 
 if torch.cuda.is_available():
     if args.cuda:
@@ -72,10 +71,9 @@ else:
 if not os.path.exists(args.save_folder):
     os.mkdir(args.save_folder)
 
-
 if args.visdom:
-    import visdom
     viz = visdom.Visdom()
+
 
 def train():
     if args.dataset == 'COCO':
@@ -98,23 +96,22 @@ def train():
                                                          MEANS))
 
     # if args.visdom:
-    #     import visdom
     #     viz = visdom.Visdom()
 
-    ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'])
+    ssd_net = build_ssd('train', args.model, cfg['min_dim'], cfg['num_classes'])
     net = ssd_net
 
     if args.cuda:
         net = torch.nn.DataParallel(ssd_net)
-        cudnn.benchmark = False
+        cudnn.benchmark = True
 
     if args.resume:
         print('Resuming training, loading {}...'.format(args.resume))
         ssd_net.load_weights(args.resume)
     else:
-        vgg_weights = torch.load("E:\Code\Examples\Gao\ssd.pytorch-master\weights\\vgg\\vgg16_reducedfc.pth")
+        base_weights = torch.load(args.save_folder + args.model + "//" + args.basenet)
         print('Loading base network...')
-        ssd_net.vgg.load_state_dict(vgg_weights)
+        ssd_net.base.load_state_dict(base_weights)
 
     if args.cuda:
         net = net.cuda()
@@ -126,8 +123,8 @@ def train():
         ssd_net.loc.apply(weights_init)
         ssd_net.conf.apply(weights_init)
 
-    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum,
-                          weight_decay=args.weight_decay)
+    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    # optimizer = optim.Adam(net.parameters(),lr=args.lr,weight_decay=args.weight_decay)
     criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
                              False, args.cuda)
 
@@ -147,21 +144,23 @@ def train():
     step_index = 0
 
     if args.visdom:
-        vis_title = 'SSD.PyTorch on ' + dataset.name
+        vis_title = 'SSD.PyTorch on ' + dataset.name + '-backbone ' + args.model
         vis_legend = ['Loc Loss', 'Conf Loss', 'Total Loss']
         iter_plot = create_vis_plot('Iteration', 'Loss', vis_title, vis_legend)
-        epoch_plot = create_vis_plot('Epoch', 'Loss', vis_title, vis_legend)
+        # epoch_plot = create_vis_plot('Epoch', 'Loss', vis_title, vis_legend)
 
     data_loader = data.DataLoader(dataset, args.batch_size,
                                   num_workers=args.num_workers,
                                   shuffle=True, collate_fn=detection_collate,
                                   pin_memory=True)
+    t00 = time.time()
     # create batch iterator
     batch_iterator = iter(data_loader)
     for iteration in range(args.start_iter, cfg['max_iter']):
+
         if args.visdom and iteration != 0 and (iteration % epoch_size == 0):
-            update_vis_plot(epoch, loc_loss, conf_loss, epoch_plot, None,
-                            'append', epoch_size)
+            # update_vis_plot(epoch, loc_loss, conf_loss, epoch_plot, None,
+            #                 'append', epoch_size)
             # reset epoch loss counters
             loc_loss = 0
             conf_loss = 0
@@ -180,11 +179,11 @@ def train():
 
         if args.cuda:
             images = Variable(images.cuda())
-            targets = [Variable(ann.cuda(), volatile=True) for ann in targets]
+            targets = [Variable(ann.cuda(), requires_grad=True) for ann in targets]
         else:
             images = Variable(images)
-            # TODO: change Variable(ann, volatile = True) to Variable(ann)
-            targets = [Variable(ann, volatile = True) for ann in targets]
+            targets = [Variable(ann, requires_grad=True) for ann in targets]
+
         # forward
         t0 = time.time()
         out = net(images)
@@ -195,23 +194,20 @@ def train():
         loss.backward()
         optimizer.step()
         t1 = time.time()
-        loc_loss += loss_l.item()
-        conf_loss += loss_c.item()
+        loc_loss += loss_l.data.item()
+        conf_loss += loss_c.data.item()
 
-        if iteration % 100 == 0:
-            print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
         loss_ass = loss_ass + [loss.item()]
 
+        iteration = iteration + 1
+        if iteration % 10 == 0:
+            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data.item()), end=' ')
+            print('Time for 1 iteration: %.4f s.' % (t1 - t0), ' Timer %1.1f s.' % (t1 - t00))
+
         if args.visdom:
-            update_vis_plot(iteration, loss_l.item(), loss_c.item(), iter_plot, epoch_plot, 'append')
+            update_vis_plot(iteration, loss_l.item(), loss_c.item(), iter_plot, None, 'append')
 
-        # if iteration != 0 and iteration % 200 == 0:
-        #     print('Saving state, iter:', iteration)
-        #     torch.save(ssd_net.state_dict(), 'weights/ssd300_VOC_' +
-        #                repr(iteration) + '.pth')
-
-    show_loss('E:\Code\Examples\Gao\ssd.pytorch-master\eval\show_loss_ssd.png', loss_ass)
+    show_loss("D:\WorkSpace\PyCharmSpace\SSD\ssd.pytorch-master\eval\\show_loss_ssd.png", loss_ass)
     torch.save(ssd_net.state_dict(), args.save_folder + '' + args.dataset + '.pth')
 
 
@@ -232,8 +228,12 @@ def xavier(param):
 
 def weights_init(m):
     if isinstance(m, nn.Conv2d):
-        xavier(m.weight.data)
-        m.bias.data.zero_()
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        # xavier(m.weight.data)
+        # m.bias.data.zero_()
+    elif isinstance(m, nn.BatchNorm2d):
+        nn.init.constant_(m.weight, 1)
+        nn.init.constant_(m.bias, 0)
 
 
 def create_vis_plot(_xlabel, _ylabel, _title, _legend):
