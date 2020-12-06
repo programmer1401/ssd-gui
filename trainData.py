@@ -1,5 +1,6 @@
 from data import *
 from layers.img_utils import show_loss
+from resnet_ssd import build_resnet_ssd
 from utils.augmentations import SSDAugmentation
 from layers.modules import MultiBoxLoss
 from ssd import build_ssd
@@ -23,7 +24,7 @@ class TrainData:
                  basenet='vgg16_reducedfc.pth', batch_size=4, cuda=False,
                  lr=1e-4, momentum=0.9, weight_decay=5e-4, gamma=0.1,
                  save_folder="E:\Code\Examples\Gao\ssd.pytorch-master\weights/"):
-        self.dataset = dataset
+        self.dataset_name = dataset
         self.dataset_root = dataset_root
         self.basenet = basenet
         self.iter_num = iter_num
@@ -50,11 +51,9 @@ class TrainData:
         if not os.path.exists(self.save_folder):
             os.mkdir(self.save_folder)
 
-
-    def train(self):
-        self.set_equipment()
-
-        if self.dataset == 'COCO':
+    def set_dataset(self):
+        global cfg, dataset
+        if self.dataset_name == 'COCO':
             if self.dataset_root == VOC_ROOT:
                 print("WARNING: Using default COCO dataset_root because " +
                       "--dataset_root was not specified.")
@@ -63,25 +62,52 @@ class TrainData:
             dataset = COCODetection(root=self.dataset_root,
                                     transform=SSDAugmentation(cfg['min_dim'],
                                                               MEANS))
-        elif self.dataset == 'VOC':
+        elif self.dataset_name == 'VOC':
             cfg = voc
             dataset = VOCDetection(root=self.dataset_root,
                                    transform=SSDAugmentation(cfg['min_dim'],
                                                              MEANS))
 
-        ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'])
-        net = ssd_net
+        return cfg, dataset
 
-        if self.cuda:
-            net = torch.nn.DataParallel(ssd_net)
-            cudnn.benchmark = False
 
-        vgg_weights = torch.load(self.save_folder + self.basenet)
-        print('Loading base network...')
-        ssd_net.vgg.load_state_dict(vgg_weights)
+    def set_net(self):
+        global ssd_net, net
+        if self.basenet == 'vgg16_reducedfc.pth':
+            print('Loading base network vgg16...')
+            ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'])
+            net = ssd_net
 
-        if self.cuda:
-            net = net.cuda()
+            if self.cuda:
+                net = torch.nn.DataParallel(ssd_net)
+                cudnn.benchmark = False
+
+            vgg_weights = torch.load(self.save_folder + self.basenet)
+            ssd_net.vgg.load_state_dict(vgg_weights)
+
+        elif self.basenet == 'resnet50-19c8e357.pth':
+            print('Loading base network resnet50...')
+            ssd_net = build_resnet_ssd('train', 300, num_classes=21)
+            net = ssd_net
+
+            # 为resnet_ssd加载预训练权重文件
+            # 1、加载模型
+            resnet_pretrained_weights = torch.load(self.save_folder + self.basenet)
+            # 2、初始化网络
+            resnet_dict = ssd_net.state_dict()
+            # 3、剔除掉网络中没有的键
+            pretrained_dict_l = {k: v for k, v in resnet_pretrained_weights.items() if k in resnet_dict}
+            # 4、用预训练的权重文件，更新网络权重
+            resnet_dict.update(pretrained_dict_l)
+            # 5、将更新了的参数放入网络中
+            ssd_net.load_state_dict(resnet_dict)
+
+        return ssd_net, net
+
+    def train(self):
+        self.set_equipment()
+        cfg, dataset = self.set_dataset()
+        ssd_net, net = self.set_net()
 
         optimizer = optim.SGD(net.parameters(), lr=self.lr, momentum=self.momentum,
                               weight_decay=self.weight_decay)
@@ -148,7 +174,7 @@ class TrainData:
                 # torch.save(ssd_net.state_dict(), 'E:\Code\Examples\Gao\ssd.pytorch-master\weights/ssd300_VOC_' +
                 #            repr(iteration) + '.pth')
 
-        torch.save(ssd_net.state_dict(), self.save_folder + '' + self.dataset + '.pth')
+        torch.save(ssd_net.state_dict(), self.save_folder + '' + self.dataset_name + '.pth')
         return loss_ass
 
 
