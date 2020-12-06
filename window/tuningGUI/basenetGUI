@@ -1,0 +1,100 @@
+import tkinter as tk
+from tkinter import *
+import tkinter.messagebox
+
+from gui.trainData import TrainData
+from gui.utils import CreateCanvas
+import matplotlib.pyplot as plt
+
+
+class basenetGUI:
+    def __init__(self, window):
+        self.window = window
+        # self.window = tk.Tk()
+        self.window.title("超参数调优——骨干网络")
+        self.window.geometry("1000x618")
+        self.createWidget()
+        self.window.mainloop()
+
+    def createWidget(self):
+        # learning_rate 的作用
+        Label(self.window, text="骨干网络的作用是“图像分类”",
+              font=("STSONG", 20, "bold")).place(x=320, y=20)
+        Label(self.window,
+              text="内置两种骨干网络：VGG16(2014)、Resnet50(2016)",
+              font=("STSONG", 13)).place(x=100, y=70)
+        Label(self.window,
+              text="点击“开始”，可以绘制两种骨干网络迭代相同次数时，损失函数的变化曲线",
+              font=("STSONG", 13)).place(x=100, y=100)
+
+        # 输入
+        Label(self.window, text="迭代次数：", font=("STSONG", 14)).place(x=90, y=200)
+        Label(self.window, text="批处理大小：", font=("STSONG", 14)).place(x=90, y=250)
+        Label(self.window, text="是否使用cuda：", font=("STSONG", 14)).place(x=90, y=300)
+        Label(self.window, text="学习率大小：", font=("STSONG", 14)).place(x=90, y=350)
+
+        # 迭代次数
+        iter_num = Entry(self.window, textvariable=tk.StringVar(value="10"))
+        iter_num.place(x=250, y=200)
+
+        # 批处理大小
+        batch_size = Entry(self.window, textvariable=tk.StringVar(value="2"))
+        batch_size.place(x=250, y=250)
+
+        # 是否使用 cuda
+        cuda = IntVar()
+        cuda.set(1)
+        Radiobutton(self.window, text="是", value=1, variable=cuda).place(x=250, y=300)
+        Radiobutton(self.window, text="否", value=2, variable=cuda).place(x=330, y=300)
+
+        # 学习率
+        learning_rate = Entry(self.window, textvariable=tk.StringVar(value="0.0001"))
+        learning_rate.place(x=250, y=350)
+
+        # 按钮
+        Button(self.window, text="开始", height="1", width="15",
+               command=lambda: self.tuning(iter_num=int(iter_num.get()),
+                                           batch_size=int(batch_size.get()),
+                                           learning_rate=float(learning_rate.get()),
+                                           cuda=cuda.get())).place(x=290, y=500)
+
+        self.matplot = CreateCanvas(self.window)
+        self.canvas = self.matplot.get_canvas()
+        self.figure = self.matplot.get_figure()
+
+    def tuning(self, iter_num, batch_size, learning_rate, cuda):
+        try:
+            self.ssd_loss_ass = []
+            self.resnet_loss_ass = []
+
+            cuda = True if cuda == 1 else False
+
+            ssd_traindata = TrainData(iter_num, batch_size=batch_size, lr=learning_rate, cuda=cuda,
+                                      basenet='vgg16_reducedfc.pth')
+            self.ssd_loss_ass = ssd_traindata.train()
+
+            resnet_traindata = TrainData(iter_num, batch_size=batch_size, lr=learning_rate, cuda=cuda,
+                                         basenet='resnet50-19c8e357.pth')
+            self.resnet_loss_ass = resnet_traindata.train()
+
+            self.create_matplotlib()
+
+        except Exception as e:
+            tk.messagebox.showerror(title="运行错误！", message=str(e))
+
+    def create_matplotlib(self):
+        plt.clf()
+        x = range(len(self.ssd_loss_ass))
+
+        plt.plot(x, self.ssd_loss_ass, color="red", label="vgg16")
+        plt.plot(x, self.resnet_loss_ass, color="blue", label="resnet")
+        plt.title("不同骨干网络损失函数的变化曲线", loc='center', pad=20, fontsize='xx-large', color='red')
+        plt.xlabel("迭代次数")
+        plt.ylabel("损失函数")
+        plt.legend()
+
+        self.canvas.draw()
+
+
+if __name__ == '__main__':
+    basenetGUI()
